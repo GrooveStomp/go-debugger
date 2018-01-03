@@ -8,6 +8,71 @@ import (
 	"syscall"
 )
 
+func step(pid int) {
+	err := syscall.PtraceSingleStep(pid)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func cont(pid int) {
+	err := syscall.PtraceCont(pid, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func setPC(pid int, pc uint64) {
+	var regs syscall.PtraceRegs
+	err := syscall.PtraceGetRegs(pid, &regs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	regs.SetPC(pc)
+	err = syscall.PtraceSetRegs(pid, &regs)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func getPC(pid int) uint64 {
+	var regs syscall.PtraceRegs
+	err := syscall.PtraceGetRegs(pid, &regs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return regs.PC()
+}
+
+func setBreakpoint(pid int, breakpoint uintptr) []byte {
+	original := make([]byte, 1)
+	_, err := syscall.PtracePeekData(pid, breakpoint, original)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = syscall.PtracePokeData(pid, breakpoint, []byte{0xCC})
+	if err != nil {
+		log.Fatal(err)
+	}
+	return original
+}
+
+func clearBreakpoint(pid int, breakpoint uintptr, original []byte) {
+	_, err := syscall.PtracePokeData(pid, breakpoint, original)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func printState(pid int) {
+	var regs syscall.PtraceRegs
+	err := syscall.PtraceGetRegs(pid, &regs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("RAX=%d, RDI=%d\n", regs.Rax, regs.Rdi)
+}
+
 func main() {
 	flag.Parse()
 	input := flag.Arg(0)
@@ -24,43 +89,17 @@ func main() {
 
 	err = cmd.Wait()
 	log.Printf("State: %v\n", err)
-	wpid := cmd.Process.Pid
-	pgid, err := syscall.Getpgid(wpid)
-	if err != nil {
-		log.Panic(err)
-	}
+	pid := cmd.Process.Pid
+	breakpoint := uintptr(getPC(pid) + 5)
+	original := setBreakpoint(pid, breakpoint)
+	cont(pid)
 
-	err = syscall.PtraceSetOptions(wpid, syscall.PTRACE_O_TRACECLONE)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = syscall.PtraceSingleStep(wpid)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	steps := 1
-
-	for {
-		var ws syscall.WaitStatus
-		wpid, err = syscall.Wait4(-1 * pgid, &ws, syscall.WALL, nil)
-		if wpid == -1 {
-			log.Fatal(err)
-		}
-
-		if wpid == cmd.Process.Pid && ws.Exited() {
-			break
-		}
-
-		if !ws.Exited() {
-			err := syscall.PtraceSingleStep(wpid)
-			if err != nil {
-				log.Fatal(err)
-			}
-			steps += 1
-		}
-	}
-
-	log.Printf("Steps: %d\n", steps)
+	var ws syscall.WaitStatus
+	_, err = syscall.Wait4(pid, &ws, syscall.WALL, nil)
+	clearBreakpoint(pid, breakpoint, original)
+	printState(pid)
+	setPC(pid, uint64(breakpoint))
+	step(pid)
+	_, err = syscall.Wait4(pid, &ws, syscall.WALL, nil)
+	printState(pid)
 }
