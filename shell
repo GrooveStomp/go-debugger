@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+function start-container() {
+    docker run \
+           --rm \
+           -it \
+           -v \
+           "$PWD":/go \
+           --security-opt seccomp=unconfined \
+           godebugger
+}
+
+function go-install-debug() {
+    go install --gcflags="-N -l" $@
+}
+
+function dev-install() {
+    go-install-debug code.groovestomp.com/hello
+    go install code.groovestomp.com/debugger
+}

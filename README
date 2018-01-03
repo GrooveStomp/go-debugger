@@ -1,0 +1,6 @@
+This is a project built on OSX using Linux-isms, as a result, it uses a
+Dockerfile to specify how to build a Docker image.  The programs residing
+here are intended to be run within a Docker container based off of this
+image.  For more details, see:
+
+    https://medium.com/golangspec/making-debugger-for-golang-part-i-53124284b7c8
