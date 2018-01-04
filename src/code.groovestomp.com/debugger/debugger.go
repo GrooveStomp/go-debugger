@@ -16,6 +16,12 @@ import (
 	"syscall"
 )
 
+var (
+	breakpoints  map[string][]int
+	pcSourceLine int
+	pcSourceFile string
+)
+
 func initTracee(path string) int {
 	cmd := exec.Command(path)
 	cmd.Args = []string{path}
@@ -108,6 +114,7 @@ func clearBreakpoint(pid int, breakpoint uintptr, original []byte) {
 }
 
 func main() {
+	breakpoints = make(map[string][]int)
 	flag.Parse()
 	filepath := flag.Arg(0)
 	exe, err := elf.Open(filepath)
@@ -121,12 +128,11 @@ func main() {
 	symbolTable := getSymbolTable(exe)
 	symbol := symbolTable.LookupFunc("main.main")
 	filename, lineno, _ := symbolTable.PCToLine(symbol.Entry)
-	fmt.Printf("filename: %v\n", filename)
 
 	runToSourceLine(pid, filename, lineno, symbolTable)
-	fmt.Println("AARON")
+
 	pc := getPC(pid)
-	showListingPC(pc, symbolTable, ">")
+	showListing(filename, lineno)
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -143,13 +149,13 @@ func main() {
 
 		if isHelpCommand(command) {
 			showHelp()
-		} else if isRegisterCommand(command) {
-			fmt.Println("register...")
 		} else if isBreakpointCommand(command) {
 			filename, lineNumber, err := parseBreakpointCommand(command, filename)
 			if err != nil {
 				log.Fatal(err)
 			}
+
+			breakpoints[filename] = append(breakpoints[filename], lineNumber)
 
 			pc, _, err := symbolTable.LineToPC(filename, lineNumber)
 			if err != nil {
@@ -157,32 +163,33 @@ func main() {
 			}
 
 			setBreakpoint(pid, uintptr(pc))
-			showListingSource(filename, lineNumber, "*")
+			showListing(filename, lineNumber)
 
-		} else if isStepCommand(command) {
+		} else if isStepIntoCommand(command) {
 			step(pid)
-
-			// TODO(AARONO): Do actual source mapping.
-			// DW_AT_low_pc is the first address of the function in the executable.
-			// DW_AT_high_pc is the last address after the end of the function in the executable.
-			// In the executable we have machine instructions annotated with ASM text.
-			// We still want a way to map source lines in the original Go program...
-			//
-			// See: https://eli.thegreenplace.net/2011/02/07/how-debuggers-work-part-3-debugging-information
-			// Look for: "Looking up line numbers"
-
 			pc = getPC(pid)
-			showListingPC(pc, symbolTable, ">")
+			filename, lineno, _ := symbolTable.PCToLine(pc)
+			showListing(filename, lineno)
 		} else if isStepOverCommand(command) {
 			lineno = lineno + 1
 			runToSourceLine(pid, filename, lineno, symbolTable)
 			pc = getPC(pid)
-			showListingPC(pc, symbolTable, ">")
+			showListing(filename, lineno)
 		} else if isContinueCommand(command) {
 			cont(pid)
 		} else if isListingCommand(command) {
 			pc = getPC(pid)
-			showListingPC(pc, symbolTable, ">")
+			filename, lineno, _ = symbolTable.PCToLine(pc)
+
+			parts := strings.Split(command, " ")
+			if len(parts) == 2 {
+				lineno, err = strconv.Atoi(parts[len(parts)-1])
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			showListing(filename, lineno)
 		} else if isQuitCommand(command) {
 			process, err := os.FindProcess(pid)
 			if err != nil {
@@ -196,19 +203,13 @@ func main() {
 	}
 }
 
-func isRegisterCommand(command string) bool {
-	return strings.HasPrefix(command, "register ") ||
-		strings.HasPrefix(command, "reg ") ||
-		strings.HasPrefix(command, "r ")
-}
-
 func isBreakpointCommand(command string) bool {
 	return strings.HasPrefix(command, "breakpoint ") ||
 		strings.HasPrefix(command, "break ") ||
 		strings.HasPrefix(command, "b ")
 }
 
-func isStepCommand(command string) bool {
+func isStepIntoCommand(command string) bool {
 	return command == "step" || command == "s"
 }
 
@@ -239,18 +240,6 @@ func isQuitCommand(command string) bool {
 
 func showHelp() {
 	text := `
-Set Register
-
-  r <identifier> <value>
-  reg <identifier> <value>
-  register <identifier> <value>
-
-Get Register Value
-
-  r <identifier>
-  reg <identifier>
-  register <identifier>
-
 Set Breakpoint
 
   b <location>
@@ -333,7 +322,7 @@ func getSymbolTable(exe *elf.File) *gosym.Table {
 	return symbolTable
 }
 
-func showListingSource(filename string, lineNumber int, indicator string) {
+func showListing(filename string, lineNumber int) {
 	fileBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
@@ -352,19 +341,24 @@ func showListingSource(filename string, lineNumber int, indicator string) {
 
 	fmt.Println()
 	for i := start; i < end; i++ {
-		if i == lineNumber {
-			fmt.Printf("%v ", indicator)
+
+		isBreakpoint := false
+		for j := 0; j < len(breakpoints[filename]); j++ {
+			if breakpoints[filename][j] == i {
+				isBreakpoint = true
+			}
+		}
+
+		if i == pcSourceLine && filename == pcSourceFile {
+			fmt.Print("> ")
+		} else if isBreakpoint {
+			fmt.Print("* ")
 		} else {
 			fmt.Print("  ")
 		}
 		fmt.Printf("%v %v\n", i+1, lines[i])
 	}
 	fmt.Println()
-}
-
-func showListingPC(pc uint64, symbolTable *gosym.Table, indicator string) {
-	filename, lineNumber, _ := symbolTable.PCToLine(pc)
-	showListingSource(filename, lineNumber, indicator)
 }
 
 func runToSourceLine(pid int, filename string, lineNumber int, symbolTable *gosym.Table) *syscall.WaitStatus {
@@ -377,6 +371,8 @@ func runToSourceLine(pid int, filename string, lineNumber int, symbolTable *gosy
 	status := cont(pid)
 	clearBreakpoint(pid, uintptr(pc), original)
 	setPC(pid, uint64(pc))
+	pcSourceLine = lineNumber
+	pcSourceFile = filename
 
 	return status
 }
