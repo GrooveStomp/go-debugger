@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
-	"debug/gosym"
 	"debug/elf"
+	"debug/gosym"
 	"flag"
 	"fmt"
 	"io"
@@ -21,7 +21,7 @@ func initTracee(path string) int {
 	cmd.Args = []string{path}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace:true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
 	err := cmd.Start()
 	if err != nil {
 		log.Fatal(err)
@@ -116,7 +116,7 @@ func main() {
 	}
 	defer exe.Close()
 
-  pid := initTracee(filepath)
+	pid := initTracee(filepath)
 
 	symbolTable := getSymbolTable(exe)
 	symbol := symbolTable.LookupFunc("main.main")
@@ -162,14 +162,14 @@ func main() {
 		} else if isStepCommand(command) {
 			step(pid)
 
-	// TODO(AARONO): Do actual source mapping.
-	// DW_AT_low_pc is the first address of the function in the executable.
-	// DW_AT_high_pc is the last address after the end of the function in the executable.
-	// In the executable we have machine instructions annotated with ASM text.
-	// We still want a way to map source lines in the original Go program...
-	//
-	// See: https://eli.thegreenplace.net/2011/02/07/how-debuggers-work-part-3-debugging-information
-	// Look for: "Looking up line numbers"
+			// TODO(AARONO): Do actual source mapping.
+			// DW_AT_low_pc is the first address of the function in the executable.
+			// DW_AT_high_pc is the last address after the end of the function in the executable.
+			// In the executable we have machine instructions annotated with ASM text.
+			// We still want a way to map source lines in the original Go program...
+			//
+			// See: https://eli.thegreenplace.net/2011/02/07/how-debuggers-work-part-3-debugging-information
+			// Look for: "Looking up line numbers"
 
 			pc = getPC(pid)
 			showListingPC(pc, symbolTable, ">")
@@ -357,7 +357,7 @@ func showListingSource(filename string, lineNumber int, indicator string) {
 		} else {
 			fmt.Print("  ")
 		}
-		fmt.Printf("%v %v\n", i + 1, lines[i])
+		fmt.Printf("%v %v\n", i+1, lines[i])
 	}
 	fmt.Println()
 }
