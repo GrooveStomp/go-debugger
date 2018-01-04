@@ -344,7 +344,7 @@ func showListing(filename string, lineNumber int) {
 
 		isBreakpoint := false
 		for j := 0; j < len(breakpoints[filename]); j++ {
-			if breakpoints[filename][j] == i {
+			if breakpoints[filename][j] == i + 1 {
 				isBreakpoint = true
 			}
 		}
