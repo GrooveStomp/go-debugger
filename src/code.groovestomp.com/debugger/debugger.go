@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -120,11 +121,12 @@ func main() {
 	symbolTable := getSymbolTable(exe)
 	symbol := symbolTable.LookupFunc("main.main")
 	filename, lineno, _ := symbolTable.PCToLine(symbol.Entry)
+	fmt.Printf("filename: %v\n", filename)
 
 	runToSourceLine(pid, filename, lineno, symbolTable)
 	fmt.Println("AARON")
 	pc := getPC(pid)
-	showListing(pc, symbolTable)
+	showListingPC(pc, symbolTable, ">")
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
@@ -144,7 +146,19 @@ func main() {
 		} else if isRegisterCommand(command) {
 			fmt.Println("register...")
 		} else if isBreakpointCommand(command) {
-			fmt.Println("breakpoint...")
+			filename, lineNumber, err := parseBreakpointCommand(command, filename)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			pc, _, err := symbolTable.LineToPC(filename, lineNumber)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			setBreakpoint(pid, uintptr(pc))
+			showListingSource(filename, lineNumber, "*")
+
 		} else if isStepCommand(command) {
 			step(pid)
 
@@ -158,17 +172,17 @@ func main() {
 	// Look for: "Looking up line numbers"
 
 			pc = getPC(pid)
-			showListing(pc, symbolTable)
+			showListingPC(pc, symbolTable, ">")
 		} else if isStepOverCommand(command) {
 			lineno = lineno + 1
 			runToSourceLine(pid, filename, lineno, symbolTable)
 			pc = getPC(pid)
-			showListing(pc, symbolTable)
+			showListingPC(pc, symbolTable, ">")
 		} else if isContinueCommand(command) {
 			cont(pid)
 		} else if isListingCommand(command) {
 			pc = getPC(pid)
-			showListing(pc, symbolTable)
+			showListingPC(pc, symbolTable, ">")
 		} else if isQuitCommand(command) {
 			process, err := os.FindProcess(pid)
 			if err != nil {
@@ -319,8 +333,7 @@ func getSymbolTable(exe *elf.File) *gosym.Table {
 	return symbolTable
 }
 
-func showListing(pc uint64, symbolTable *gosym.Table) {
-	filename, lineno, _ := symbolTable.PCToLine(pc)
+func showListingSource(filename string, lineNumber int, indicator string) {
 	fileBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
@@ -328,25 +341,30 @@ func showListing(pc uint64, symbolTable *gosym.Table) {
 	fstring := string(fileBytes)
 	lines := strings.Split(fstring, "\n")
 
-	start := lineno - 3
+	start := lineNumber - 3
 	if start < 0 {
 		start = 0
 	}
-	end := lineno + 3
+	end := lineNumber + 3
 	if end >= len(lines) {
 		end = len(lines) - 1
 	}
 
 	fmt.Println()
 	for i := start; i < end; i++ {
-		if i == lineno {
-			fmt.Print("> ")
+		if i == lineNumber {
+			fmt.Printf("%v ", indicator)
 		} else {
 			fmt.Print("  ")
 		}
 		fmt.Printf("%v %v\n", i + 1, lines[i])
 	}
 	fmt.Println()
+}
+
+func showListingPC(pc uint64, symbolTable *gosym.Table, indicator string) {
+	filename, lineNumber, _ := symbolTable.PCToLine(pc)
+	showListingSource(filename, lineNumber, indicator)
 }
 
 func runToSourceLine(pid int, filename string, lineNumber int, symbolTable *gosym.Table) *syscall.WaitStatus {
@@ -361,4 +379,26 @@ func runToSourceLine(pid int, filename string, lineNumber int, symbolTable *gosy
 	setPC(pid, uint64(pc))
 
 	return status
+}
+
+func parseBreakpointCommand(command string, filename string) (string, int, error) {
+	parts := strings.Split(command, " ")
+	command = parts[len(parts)-1]
+
+	var num string
+
+	if strings.Contains(command, ":") {
+		parts = strings.Split(parts[len(parts)-1], ":")
+		filename = parts[0]
+		num = parts[1]
+	} else {
+		num = command
+	}
+
+	lineNumber, err := strconv.Atoi(num)
+	if err != nil {
+		return "", -1, err
+	}
+
+	return filename, lineNumber, nil
 }
