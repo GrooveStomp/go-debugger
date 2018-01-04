@@ -26,7 +26,7 @@ func initTracee(path string) int {
 		log.Fatal(err)
 	}
 
-	returnStatus = cmd.Wait()
+	returnStatus := cmd.Wait()
 	if returnStatus == nil {
 		log.Fatal("Program exited")
 	}
@@ -104,15 +104,6 @@ func clearBreakpoint(pid int, breakpoint uintptr, original []byte) {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func printState(pid int) {
-	var regs syscall.PtraceRegs
-	err := syscall.PtraceGetRegs(pid, &regs)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("RAX=%d, RDI=%d\n", regs.Rax, regs.Rdi)
 }
 
 func main() {
@@ -367,6 +358,7 @@ func runToSourceLine(pid int, filename string, lineNumber int, symbolTable *gosy
 	original := setBreakpoint(pid, uintptr(pc))
 	status := cont(pid)
 	clearBreakpoint(pid, uintptr(pc), original)
+	setPC(pid, uint64(pc))
 
 	return status
 }
