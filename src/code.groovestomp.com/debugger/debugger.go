@@ -172,11 +172,17 @@ func main() {
 			showListing(filename, lineno)
 		} else if isStepOverCommand(command) {
 			lineno = lineno + 1
-			runToSourceLine(pid, filename, lineno, symbolTable)
+			status := runToSourceLine(pid, filename, lineno, symbolTable)
+			if status.Exited() {
+				break
+			}
 			pc = getPC(pid)
 			showListing(filename, lineno)
 		} else if isContinueCommand(command) {
-			cont(pid)
+			status := cont(pid)
+			if status.Exited() {
+				break
+			}
 		} else if isListingCommand(command) {
 			pc = getPC(pid)
 			filename, lineno, _ = symbolTable.PCToLine(pc)
