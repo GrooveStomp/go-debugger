@@ -169,19 +169,24 @@ func main() {
 			step(pid)
 			pc = getPC(pid)
 			filename, lineno, _ := symbolTable.PCToLine(pc)
-			showListing(filename, lineno)
+			showListing(filename, lineno - 1)
 		} else if isStepOverCommand(command) {
 			lineno = lineno + 1
 			status := runToSourceLine(pid, filename, lineno, symbolTable)
 			if status.Exited() {
 				break
 			}
-			pc = getPC(pid)
 			showListing(filename, lineno)
 		} else if isContinueCommand(command) {
 			status := cont(pid)
 			if status.Exited() {
 				break
+			} else {
+				pc = getPC(pid)
+				filename, lineno, _ := symbolTable.PCToLine(pc)
+				pcSourceLine = lineno
+				pcSourceFile = filename
+				showListing(filename, lineno)
 			}
 		} else if isListingCommand(command) {
 			pc = getPC(pid)
@@ -336,7 +341,7 @@ func showListing(filename string, lineNumber int) {
 	fstring := string(fileBytes)
 	lines := strings.Split(fstring, "\n")
 
-	start := lineNumber - 3
+	start := lineNumber - 4
 	if start < 0 {
 		start = 0
 	}
@@ -355,7 +360,7 @@ func showListing(filename string, lineNumber int) {
 			}
 		}
 
-		if i == pcSourceLine && filename == pcSourceFile {
+		if (i + 1) == pcSourceLine && filename == pcSourceFile {
 			fmt.Print("> ")
 		} else if isBreakpoint {
 			fmt.Print("* ")
